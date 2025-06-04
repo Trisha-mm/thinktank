@@ -1,7 +1,6 @@
-import { Link } from "expo-router";
 import { Text, View } from "react-native";
 
-export default function Landing() {
+export default function Login() {
   return (
     <View
       style={{
@@ -10,8 +9,7 @@ export default function Landing() {
         alignItems: "center",
       }}
     >
-      <Text>hello.</Text>
-      <Link href="./loginOptions"><Text>Login Options</Text></Link>
+      <Text>Login.</Text>
     </View>
   );
 }
