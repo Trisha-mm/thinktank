@@ -9,11 +9,20 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
+      "googleServicesFile": "./GoogleService-Info.plist",
       "bundleIdentifier": "com.application.thinktank",
-      "supportsTablet": true
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLName": "com.application.thinktank",
+            "CFBundleURLSchemes": ["com.googleusercontent.apps.938577551494-2ioh9kjnq3oqqcvlhmpj5et8e44docmg"]
+          }
+        ]
+      }
     },
     "android": {
       "package": "com.application.thinktank",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -27,6 +36,9 @@
     },
     "plugins": [
       "expo-router",
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth",
+      "@react-native-google-signin/google-signin",
       [
         "expo-splash-screen",
         {
@@ -35,7 +47,9 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
+
       ]
+
     ],
     "experiments": {
       "typedRoutes": true
