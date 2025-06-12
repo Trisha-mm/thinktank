@@ -1,11 +1,17 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Tabs } from 'expo-router';
+import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function TabLayout() {
   return (
+    <SafeAreaView style = {{
+      flex:1
+    }}>
     <Tabs
-    screenOptions={{
+      screenOptions={{
       headerShown:false,
+      tabBarActiveTintColor: '#809354',
+      tabBarInactiveTintColor: '#8E8E93',
     }}
     >
       <Tabs.Screen
@@ -23,7 +29,7 @@ export default function TabLayout() {
           title: 'Games',
   
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'calculator' : 'calculator-outline'} color={color} size={24} />
+            <Ionicons name={focused ? 'game-controller' : 'game-controller-outline'} color={color} size={24} />
           ),
         }}
       />
@@ -33,7 +39,7 @@ export default function TabLayout() {
           title: 'Progress',
     
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'calculator' : 'calculator-outline'} color={color} size={24} />
+            <Ionicons name={focused ? 'bar-chart' : 'bar-chart-outline'} color={color} size={24} />
           ),
         }}
       />
@@ -42,11 +48,13 @@ export default function TabLayout() {
         options={{
           title: 'Settings',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'calculator' : 'calculator-outline'} color={color} size={24} />
+            <Ionicons name={focused ? 'settings' : 'settings-outline'} color={color} size={24} />
           ),
         }}
       />
       
     </Tabs>
+    
+    </SafeAreaView>
   );
 }

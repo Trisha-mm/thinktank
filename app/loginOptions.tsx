@@ -1,20 +1,21 @@
 import { auth } from "@/firebaseConfig";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Google from "expo-auth-session/providers/google";
-import { Link, useLocalSearchParams } from "expo-router";
+import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { GoogleAuthProvider, signInWithCredential } from "firebase/auth";
 import React, { useEffect } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { GoogleAuthService } from '../GoogleAuthService';
 
+export const WEB_CLIENT_ID =
+  "938577551494-of1jd4nk2cc7fq00cjtr60l2augjsrdh.apps.googleusercontent.com";
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginOptionsScreen() {
   const { mode } = useLocalSearchParams();
+  const router = useRouter();
   const isSignup = mode === "signup";
-
-  // Set button text depending on whether the user is signing up or logging in
   let emailText = "Log In with Email";
   let googleText = "Log In with Google";
 
@@ -23,18 +24,12 @@ export default function LoginOptionsScreen() {
     googleText = "Sign Up with Google";
   }
 
-  const handleGooglesignin=async()=>{
-    const result = await GoogleAuthService.signInWithGoogle();
-    console.log(result);
-  }
-
-
-
   const [request, response, promptAsync] = Google.useAuthRequest({
-   
+    webClientId: WEB_CLIENT_ID,
+    androidClientId: WEB_CLIENT_ID,
+    iosClientId: WEB_CLIENT_ID,
+    redirectUri: "https://auth.expo.io/@shubhambade/think-tank",
   });
-
-  console.log("🔁 Redirect URI:", request?.redirectUri);
 
   useEffect(() => {
     if (response?.type === "success" && response.authentication) {
@@ -44,9 +39,12 @@ export default function LoginOptionsScreen() {
         const credential = GoogleAuthProvider.credential(idToken);
 
         signInWithCredential(auth, credential)
-          .then((userCredential) => {
+          .then(async (userCredential) => {
             const user = userCredential.user;
             console.log("✅ Logged in as:", user.displayName);
+
+            await AsyncStorage.setItem("isLoggedIn", "true");
+            router.replace("./tabs");
           })
           .catch((err) => {
             console.error("❌ Firebase login failed:", err);
@@ -71,7 +69,7 @@ export default function LoginOptionsScreen() {
         <TouchableOpacity
           style={styles.googleButton}
           disabled={!request}
-          onPress={() => promptAsync()}
+          onPress={() => promptAsync({ useProxy: false })}
         >
           <Text style={styles.googleButtonText}>{googleText}</Text>
         </TouchableOpacity>

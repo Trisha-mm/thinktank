@@ -1,18 +1,19 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+} from "firebase/auth";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
+  Modal,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
-
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-} from "firebase/auth";
 import { auth } from "../firebaseConfig";
 
 export default function Login() {
@@ -21,6 +22,7 @@ export default function Login() {
   const [isSignup, setIsSignup] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [modalVisible, setModalVisible] = useState(false);
 
   useEffect(() => {
     if (mode === "signup") {
@@ -39,12 +41,21 @@ export default function Login() {
     try {
       if (isSignup) {
         await createUserWithEmailAndPassword(auth, email, password);
-        Alert.alert("Sign up successful!");
       } else {
         await signInWithEmailAndPassword(auth, email, password);
-        Alert.alert("Login successful!");
       }
-      router.replace("/");
+
+      // Save logged-in status
+      await AsyncStorage.setItem("isLoggedIn", "true");
+
+      // Show modal
+      setModalVisible(true);
+
+      // Wait and navigate
+      setTimeout(() => {
+        setModalVisible(false);
+        router.replace("/tabs");
+      }, 1500);
     } catch (error: any) {
       Alert.alert("Error", error.message || "Something went wrong");
     }
@@ -86,6 +97,15 @@ export default function Login() {
             : "Don’t have an account? Sign Up"}
         </Text>
       </TouchableOpacity>
+
+      {/* ✅ Success Modal */}
+      <Modal animationType="fade" transparent={true} visible={modalVisible}>
+        <View style={styles.modalBackground}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalText}>🎉 {isSignup ? "Sign Up" : "Login"} Successful!</Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -131,5 +151,25 @@ const styles = StyleSheet.create({
     color: "#144D4D",
     marginTop: 15,
     textDecorationLine: "underline",
+  },
+  modalBackground: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.3)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: "#fff",
+    padding: 24,
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  modalText: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#144D4D",
   },
 });
