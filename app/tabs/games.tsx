@@ -1,8 +1,12 @@
 import LogoHeader from "@/components/LogoHeader";
+import { db } from "@/firebaseConfig";
 import { useLocalSearchParams } from "expo-router";
+import { collection, doc, getDocs, updateDoc } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Dimensions,
+  Image,
   Modal,
   ScrollView,
   StyleSheet,
@@ -14,134 +18,16 @@ import {
 const { width } = Dimensions.get("window");
 
 type Question = {
+  id: string;
   question: string;
   options: string[];
-  correct: string;
-  type: "multiple-choice" | "fill-in-blank";
+  answer: string;
 };
 
-const QUESTION_DATABASE: Record<string, any> = { 
-    Math: {
-      "Unit 1": {
-        "1": [
-          {
-            question: "What is 5 + 3?",
-            options: ["6", "8", "7", "9"],
-            correct: "8",
-            type: "multiple-choice",
-          },
-          {
-            question: "What is 10 - 4?",
-            options: ["5", "6", "7", "8"],
-            correct: "6",
-            type: "multiple-choice",
-          },
-        ],
-        "2": [
-          {
-            question: "What is 12 × 3?",
-            options: ["35", "36", "34", "37"],
-            correct: "36",
-            type: "multiple-choice",
-          },
-          {
-            question: "What is 48 ÷ 6?",
-            options: ["7", "8", "9", "6"],
-            correct: "8",
-            type: "multiple-choice",
-          },
-        ],
-        "3": [
-          {
-            question: "Solve for x: 2x + 5 = 15",
-            options: ["3", "4", "5", "6"],
-            correct: "5",
-            type: "multiple-choice",
-          },
-        ],
-      },
-      "Unit 2": {
-        "1": [
-          {
-            question:
-              "What is the area of a rectangle with length 6 and width 4?",
-            options: ["20", "24", "22", "26"],
-            correct: "24",
-            type: "multiple-choice",
-          },
-        ],
-      },
-    },
-    English: {
-      "Unit 1": {
-        "1": [
-          {
-            question: "Which word is a noun?",
-            options: ["Run", "Happy", "Dog", "Quickly"],
-            correct: "Dog",
-            type: "multiple-choice",
-          },
-          {
-            question: "What is the past tense of 'go'?",
-            options: ["Goes", "Going", "Went", "Gone"],
-            correct: "Went",
-            type: "multiple-choice",
-          },
-        ],
-        "2": [
-          {
-            question:
-              "Complete the sentence: 'She _____ to the store yesterday.'",
-            options: ["go", "goes", "went", "going"],
-            correct: "went",
-            type: "fill-in-blank",
-          },
-        ],
-      },
-    },
-    Science: {
-      "Unit 1": {
-        "1": [
-          {
-            question: "What is the chemical symbol for water?",
-            options: ["H2O", "CO2", "O2", "NaCl"],
-            correct: "H2O",
-            type: "multiple-choice",
-          },
-          {
-            question: "How many planets are in our solar system?",
-            options: ["7", "8", "9", "10"],
-            correct: "8",
-            type: "multiple-choice",
-          },
-        ],
-      },
-    },
-    "Social Studies": {
-      "Unit 1": {
-        "1": [
-          {
-            question: "What is the capital of France?",
-            options: ["London", "Paris", "Rome", "Berlin"],
-            correct: "Paris",
-            type: "multiple-choice",
-          },
-          {
-            question: "Who was the first President of the United States?",
-            options: [
-              "Thomas Jefferson",
-              "George Washington",
-              "John Adams",
-              "Benjamin Franklin",
-            ],
-            correct: "George Washington",
-            type: "multiple-choice",
-          },
-        ],
-      },
-    },
-  };
-  
+type Lesson = {
+  id: string;
+  finished: boolean;
+};
 
 export default function QuizGame() {
   const { subject, unit, level } = useLocalSearchParams<{
@@ -157,25 +43,85 @@ export default function QuizGame() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [timeLeft, setTimeLeft] = useState(30);
   const [selectedAnswer, setSelectedAnswer] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [showStars, setShowStars] = useState(false);
+
+  const fetchLessons = async () => {
+    if (!subject) return;
+
+    try {
+      const lessonsSnapshot = await getDocs(
+        collection(db, "subjects", subject, "lessons")
+      );
+
+      const fetchedLessons: Lesson[] = [];
+      lessonsSnapshot.forEach((doc) => {
+        const data = doc.data();
+        fetchedLessons.push({
+          id: doc.id,
+          finished: data.finished || false,
+        });
+      });
+
+      setLessons(fetchedLessons);
+    } catch (err) {
+      console.error("Error fetching lessons:", err);
+    }
+  };
 
   useEffect(() => {
-    if (subject && unit && level) {
-      const questionSet: Question[] = QUESTION_DATABASE[subject]?.[unit]?.[level] ?? [];
-      if (questionSet.length > 0) {
-        const shuffled = [...questionSet].sort(() => Math.random() - 0.5);
-        setQuestions(shuffled);
-      } else {
-        setQuestions([
-          {
-            question: `Sample ${subject} question for ${unit}, Level ${level}`,
-            options: ["Option A", "Option B", "Option C", "Option D"],
-            correct: "Option A",
-            type: "multiple-choice",
-          },
-        ]);
+    const fetchQuestions = async () => {
+      if (!subject || !unit || !level) {
+        setError("Missing required parameters");
+        setLoading(false);
+        return;
       }
-    }
+
+      try {
+        setLoading(true);
+        setError(null);
+
+        await fetchLessons();
+
+      
+        const questionsSnapshot = await getDocs(
+          collection(db, "subjects", subject, "lessons", level, "questions")
+        );
+
+        if (questionsSnapshot.empty) {
+          setError(`No questions found for ${subject} - ${level}`);
+          setLoading(false);
+          return;
+        }
+
+        const fetchedQuestions: Question[] = [];
+        questionsSnapshot.forEach((doc) => {
+          const data = doc.data();
+          fetchedQuestions.push({
+            id: doc.id,
+            question: data.question || "No question text",
+            options: data.options || [],
+            answer: data.answer || "",
+          });
+        });
+
+
+        const shuffledQuestions = [...fetchedQuestions].sort(() => Math.random() - 0.5);
+        setQuestions(shuffledQuestions);
+        
+      } catch (err) {
+        console.error("Error fetching questions:", err);
+        setError("Failed to load questions. Please try again.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchQuestions();
   }, [subject, unit, level]);
+
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
@@ -194,7 +140,7 @@ export default function QuizGame() {
 
   const handleAnswer = (answer: string) => {
     setSelectedAnswer(answer);
-    if (answer === currentQuestion?.correct) {
+    if (answer === currentQuestion?.answer) {
       setScore(score + 10);
       setShowFeedback("correct");
     } else {
@@ -209,7 +155,42 @@ export default function QuizGame() {
       setTimeLeft(30);
       setSelectedAnswer("");
     } else {
+
+      const perfectScore = questions.length * 10;
+      const isPerfectScore = score === perfectScore;
+      
+      if (isPerfectScore) {
+        markLessonAsFinished();
+      }
+      
       setScreen("end");
+    }
+  };
+
+  const markLessonAsFinished = async () => {
+    if (!subject || !level) return;
+
+    try {
+      const lessonRef = doc(db, "subjects", subject, "lessons", level);
+      await updateDoc(lessonRef, {
+        finished: true,
+      });
+      console.log("Lesson marked as finished");
+      
+
+      setLessons(prev => 
+        prev.map(lesson => 
+          lesson.id === level 
+            ? { ...lesson, finished: true }
+            : lesson
+        )
+      );
+      
+
+      setShowStars(true);
+      
+    } catch (error) {
+      console.error("Error marking lesson as finished:", error);
     }
   };
 
@@ -222,16 +203,99 @@ export default function QuizGame() {
     setShowFeedback(null);
   };
 
+
+  const isPerfectScore = () => {
+    const perfectScore = questions.length * 10;
+    return score === perfectScore;
+  };
+
+  const StarWithOverlay = ({ lessonId, style }: { lessonId: string, style?: any }) => {
+    const isFinished = lessons.find(lesson => lesson.id === lessonId)?.finished || false;
+    
+    return (
+      <View style={[styles.starContainer, style]}>
+        <Image 
+          source={require("@/assets/images/star.png")} 
+          style={styles.starImage}
+          resizeMode="contain"
+        />
+        {isFinished && (
+          <View style={styles.yellowOverlay} />
+        )}
+      </View>
+    );
+  };
+
+  const renderLoading = () => (
+    <View style={styles.centerContainer}>
+      <ActivityIndicator size="large" color="#8DA94E" />
+      <Text style={styles.loadingText}>Loading questions...</Text>
+    </View>
+  );
+
+  const renderError = () => (
+    <View style={styles.centerContainer}>
+      <Text style={styles.errorText}>⚠️ {error}</Text>
+      <TouchableOpacity style={styles.button} onPress={() => {
+        setError(null);
+        setLoading(true);
+      
+        const retryFetch = async () => {
+          if (!subject || !unit || !level) return;
+          try {
+            await fetchLessons();
+            const questionsSnapshot = await getDocs(
+              collection(db, "subjects", subject, "lessons", level, "questions")
+            );
+            const fetchedQuestions: Question[] = [];
+            questionsSnapshot.forEach((doc) => {
+              const data = doc.data();
+              fetchedQuestions.push({
+                id: doc.id,
+                question: data.question || "No question text",
+                options: data.options || [],
+                answer: data.answer || "",
+              });
+            });
+            setQuestions(fetchedQuestions.sort(() => Math.random() - 0.5));
+          } catch (err) {
+            setError("Failed to load questions. Please try again.");
+          } finally {
+            setLoading(false);
+          }
+        };
+        retryFetch();
+      }}>
+        <Text style={styles.buttonText}>Retry</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   const renderStart = () => (
     <View style={styles.centerContainer}>
       <Text style={styles.title}>Ready to start?</Text>
       <Text style={styles.subtitle}>
-        {subject} - {unit} - Level {level}
+      {`${subject?.charAt(0).toUpperCase()}${subject?.slice(1)} - ${level}`}
       </Text>
-      <Text style={styles.subtitle}>You’ll earn $10 for every correct answer!</Text>
+      <Text style={styles.subtitle}>You'll earn $10 for every correct answer!</Text>
+      <Text style={styles.completionRequirement}>
+        Get all questions right to complete the lesson!
+      </Text>
       <Text style={styles.questionCount}>
         {questions.length} question{questions.length !== 1 ? "s" : ""} waiting
       </Text>
+      
+      {}
+      <View style={styles.starsContainer}>
+        {['lesson1', 'lesson2', 'lesson3', 'lesson4', 'lesson5'].map((lessonId, index) => (
+          <StarWithOverlay 
+            key={lessonId} 
+            lessonId={lessonId}
+            style={{ marginHorizontal: 8 }}
+          />
+        ))}
+      </View>
+      
       <TouchableOpacity style={styles.button} onPress={() => setScreen("quiz")}>
         <Text style={styles.buttonText}>Start Quiz</Text>
       </TouchableOpacity>
@@ -260,23 +324,19 @@ export default function QuizGame() {
           <Text style={styles.infoText}>💰 ${score}</Text>
           <Text style={styles.infoText}>{currentQuestionIndex + 1}/{questions.length}</Text>
         </View>
-        <Text style={styles.prompt}>
-          {currentQuestion.type === "fill-in-blank"
-            ? "Fill in the blank"
-            : "Choose the correct answer"}
-        </Text>
+        <Text style={styles.prompt}>Choose the correct answer</Text>
         <View style={styles.subjectInfo}>
           <Text style={styles.subjectText}>
-            {subject} • {unit} • Level {level}
+          {`${subject?.charAt(0).toUpperCase()}${subject?.slice(1)} • ${level}`}
           </Text>
         </View>
         <View style={styles.questionBox}>
           <Text style={styles.questionText}>{currentQuestion.question}</Text>
         </View>
         <View style={styles.optionsContainer}>
-          {currentQuestion.options.map((option) => (
+          {currentQuestion.options.map((option, index) => (
             <TouchableOpacity
-              key={option}
+              key={`${currentQuestion.id}-${index}`}
               style={[
                 styles.optionButton,
                 selectedAnswer === option && styles.selectedOption,
@@ -301,17 +361,49 @@ export default function QuizGame() {
 
   const renderEnd = () => (
     <View style={styles.centerContainer}>
-      <Text style={styles.title}>You finished!</Text>
-      <Text style={styles.subtitle}>
-        {subject} - {unit} - Level {level}
-      </Text>
-      <Text style={styles.score}> ${score} earned</Text>
+      {isPerfectScore() ? (
+        <>
+          <Text style={styles.title}>🎉 Congratulations!</Text>
+          <Text style={styles.subtitle}>
+            You completed {`${subject?.charAt(0).toUpperCase()}${subject?.slice(1)} - ${level}`}
+          </Text>
+          <Text style={styles.completionMessage}>Perfect score! Lesson unlocked!</Text>
+        </>
+      ) : (
+        <>
+          <Text style={styles.title}>Quiz Finished!</Text>
+          <Text style={styles.subtitle}>
+          {`${subject?.charAt(0).toUpperCase()}${subject?.slice(1)} - ${level}`}
+          </Text>
+          <Text style={styles.incompleteMessage}>
+            You need a perfect score to complete the lesson. Try again!
+          </Text>
+        </>
+      )}
+      
+      <Text style={styles.score}>💰 ${score} earned</Text>
       <Text style={styles.accuracy}>
         {Math.round((score / (questions.length * 10)) * 100)}% accuracy
       </Text>
-      <TouchableOpacity style={styles.button} onPress={resetGame}>
-        <Text style={styles.buttonText}>Play Again</Text>
-      </TouchableOpacity>
+      
+      {}
+      <View style={styles.starsContainer}>
+        {['lesson1', 'lesson2', 'lesson3', 'lesson4', 'lesson5'].map((lessonId, index) => (
+          <StarWithOverlay 
+            key={lessonId} 
+            lessonId={lessonId}
+            style={{ marginHorizontal: 8 }}
+          />
+        ))}
+      </View>
+      
+      <View style={styles.endButtonsContainer}>
+        <TouchableOpacity style={styles.button} onPress={resetGame}>
+          <Text style={styles.buttonText}>
+            {isPerfectScore() ? "Play Again" : "Try Again"}
+          </Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
@@ -323,13 +415,13 @@ export default function QuizGame() {
         <View style={styles.overlay}>
           <View style={styles.popup}>
             {isCorrect ? (
-              <Text style={styles.correctText}>Correct! +$10 </Text>
+              <Text style={styles.correctText}>🎉 Correct! +$10</Text>
             ) : (
               <>
-                <Text style={styles.incorrectText}>Oops! That was wrong</Text>
+                <Text style={styles.incorrectText}>❌ Oops! That was wrong</Text>
                 <Text style={styles.correctAnswerText}>
                   The correct answer is{" "}
-                  <Text style={styles.correctAnswer}>{currentQuestion.correct}</Text>
+                  <Text style={styles.correctAnswer}>{currentQuestion.answer}</Text>
                 </Text>
               </>
             )}
@@ -344,21 +436,54 @@ export default function QuizGame() {
     );
   };
 
+  
+  const renderStarsModal = () => {
+    if (!showStars || !isPerfectScore()) return null;
+    return (
+      <Modal transparent animationType="fade" visible={showStars}>
+        <View style={styles.overlay}>
+          <View style={styles.popup}>
+            <Text style={styles.starsTitle}>🌟 Lesson Complete! 🌟</Text>
+            <Text style={styles.starsSubtitle}>Perfect score! You've unlocked a star!</Text>
+            <StarWithOverlay lessonId={level || ""} style={styles.celebrationStar} />
+            <TouchableOpacity 
+              style={styles.button} 
+              onPress={() => setShowStars(false)}
+            >
+              <Text style={styles.buttonText}>Awesome!</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   return (
     <View style={styles.container}>
-       <View style={styles.logoWrapper}>
+      <View style={styles.logoWrapper}>
         <LogoHeader />
       </View>
-      {screen === "start" && renderStart()}
-      {screen === "quiz" && renderQuiz()}
-      {screen === "end" && renderEnd()}
-      {renderFeedback()}
+      
+      {loading && renderLoading()}
+      {error && !loading && renderError()}
+      {!loading && !error && (
+        <>
+          {screen === "start" && renderStart()}
+          {screen === "quiz" && renderQuiz()}
+          {screen === "end" && renderEnd()}
+          {renderFeedback()}
+          {renderStarsModal()}
+        </>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#EEEDE9" },
+  container: { 
+    flex: 1, 
+    backgroundColor: "#EEEDE9" 
+  },
   centerContainer: {
     flex: 1,
     justifyContent: "center",
@@ -388,7 +513,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: "#8DA94E",
-    marginBottom: 40,
+    marginBottom: 20,
+    textAlign: "center",
+  },
+  completionRequirement: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#FF9800",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  completionMessage: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#4CAF50",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  incompleteMessage: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FF9800",
+    marginBottom: 12,
     textAlign: "center",
   },
   score: {
@@ -401,21 +547,34 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "500",
     color: "#3A3A3A",
-    marginBottom: 40,
+    marginBottom: 20,
   },
   button: {
     backgroundColor: "#8DA94E",
     paddingVertical: 16,
     paddingHorizontal: 40,
     borderRadius: 20,
+    marginVertical: 8,
   },
   buttonText: {
     color: "#fff",
     fontSize: 18,
     fontWeight: "700",
   },
-
- 
+  loadingText: {
+    fontSize: 16,
+    color: "#666",
+    marginTop: 16,
+  },
+  errorText: {
+    fontSize: 18,
+    color: "#D23F3F",
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  endButtonsContainer: {
+    alignItems: "center",
+  },
   quizContainer: {
     flex: 1,
     paddingHorizontal: 24,
@@ -451,129 +610,155 @@ const styles = StyleSheet.create({
   },
   subjectInfo: {
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: 24,
   },
   subjectText: {
     fontSize: 14,
-    fontWeight: "500",
-    color: "#8DA94E",
-    backgroundColor: "rgba(141, 169, 78, 0.1)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    fontWeight: "600",
+    color: "#666",
   },
   questionBox: {
-    backgroundColor: "#fff",
-    borderRadius: 24,
-    padding: 20,
-    marginBottom: 30,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 24,
+    marginBottom: 32,
     shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    justifyContent: "center",
-    alignItems: "center",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   questionText: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "600",
-    color: "#3A3A3A",
+    color: "#2D2D2D",
+    lineHeight: 26,
     textAlign: "center",
-    lineHeight: 28,
   },
   optionsContainer: {
-    gap: 14,
+    gap: 12,
   },
   optionButton: {
     backgroundColor: "#FFFFFF",
-    paddingVertical: 16,
-    borderRadius: 16,
-    borderColor: "#C4C4C4",
-    borderWidth: 1,
-    alignItems: "center",
+    borderRadius: 12,
+    padding: 20,
+    borderWidth: 2,
+    borderColor: "#E0E0E0",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   selectedOption: {
-    backgroundColor: "#8DA94E",
     borderColor: "#8DA94E",
+    backgroundColor: "#F8FAF6",
   },
   optionText: {
     fontSize: 16,
-    fontWeight: "600",
-    color: "#3A3A3A",
+    fontWeight: "500",
+    color: "#2D2D2D",
+    textAlign: "center",
   },
   selectedOptionText: {
-    color: "#fff",
+    color: "#8DA94E",
+    fontWeight: "600",
   },
-
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.92)",
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 24,
+    padding: 24,
   },
   popup: {
-    backgroundColor: "#fff",
-    borderRadius: 24,
-    paddingVertical: 30,
-    paddingHorizontal: 24,
-    width: "100%",
-    maxWidth: 320,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 32,
     alignItems: "center",
+    maxWidth: width * 0.9,
     shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: {
+      width: 0,
+      height: 10,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
   },
   correctText: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: "700",
-    color: "#027361",
-    marginBottom: 20,
+    color: "#4CAF50",
+    marginBottom: 24,
     textAlign: "center",
   },
   incorrectText: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: "700",
-    color: "#D23F3F",
-    marginBottom: 8,
+    color: "#F44336",
+    marginBottom: 16,
     textAlign: "center",
   },
   correctAnswerText: {
     fontSize: 16,
     fontWeight: "500",
-    color: "#555",
-    marginBottom: 20,
+    color: "#666",
+    marginBottom: 24,
     textAlign: "center",
   },
   correctAnswer: {
     fontWeight: "700",
+    color: "#4CAF50",
+  },
+  starsContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    marginVertical: 20,
+  },
+  starContainer: {
+    position: "relative",
+    width: 40,
+    height: 40,
+  },
+  starImage: {
+    width: "100%",
+    height: "100%",
+  },
+  yellowOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(255, 235, 59, 0.6)", 
+    borderRadius: 20, 
+  },
+  celebrationStar: {
+    width: 80,
+    height: 80,
+    marginVertical: 20,
+  },
+  starsTitle: {
+    fontSize: 24,
+    fontWeight: "700",
     color: "#027361",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  starsSubtitle: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#3A3A3A",
+    marginBottom: 16,
+    textAlign: "center",
   },
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

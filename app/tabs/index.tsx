@@ -1,8 +1,11 @@
 import LogoHeader from "@/components/LogoHeader";
 import UserAvatar from "@/components/UserAvatar";
+import { db } from "@/firebaseConfig"; // Adjust import path as needed
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import { collection, getDocs } from "firebase/firestore";
+import React, { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Dimensions,
   Image,
   ScrollView,
@@ -16,28 +19,12 @@ import Svg, { Line } from "react-native-svg";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-
-
 const STAR_POSITIONS = [
-  { x: 100, y: 60, level: "1" },
-  { x: 200, y: 180, level: "2" },
-  { x: 120, y: 310, level: "3" },
-  { x: 180, y: 440, level: "4" },
-  { x: 100, y: 570, level: "5" },
-];
-
-const SUBJECT_OPTIONS = [
-  { label: "Math", value: "Math" },
-  { label: "English", value: "English" },
-  { label: "Science", value: "Science" },
-  { label: "Social Studies", value: "Social Studies" },
-];
-
-const UNIT_OPTIONS = [
-  { label: "Unit 1", value: "Unit 1" },
-  { label: "Unit 2", value: "Unit 2" },
-  { label: "Unit 3", value: "Unit 3" },
-  { label: "Unit 4", value: "Unit 4" },
+  { x: 100, y: 60, level: "lesson1" },
+  { x: 200, y: 180, level: "lesson2" },
+  { x: 120, y: 310, level: "lesson3" },
+  { x: 180, y: 440, level: "lesson4" },
+  { x: 100, y: 570, level: "lesson5" },
 ];
 
 const colors = {
@@ -53,13 +40,198 @@ const colors = {
   cardBackground: "#F5F5F5",
   inputBackground: "#F9F9F9",
   progressBackground: "#DADADA",
+  yellowOverlay: "rgba(255, 235, 59, 0.6)", // Light yellow overlay color
+};
+
+type Subject = {
+  label: string;
+  value: string;
+};
+
+type Lesson = {
+  id: string;
+  finished: boolean;
+  // Add other lesson properties as needed
+};
+
+// Star Component with conditional overlay
+const StarWithOverlay = ({ 
+  lessonId, 
+  isCompleted, 
+  isActive, 
+  canInteract, 
+  onPress, 
+  style, 
+  index 
+}: {
+  lessonId: string;
+  isCompleted: boolean;
+  isActive: boolean;
+  canInteract: boolean;
+  onPress: () => void;
+  style: any;
+  index: number;
+}) => {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      style={[
+        styles.star,
+        style,
+        !canInteract && styles.starDisabled,
+      ]}
+      activeOpacity={canInteract ? 0.7 : 1}
+    >
+      <View style={styles.starContainer}>
+        <Image
+          source={require("@/assets/images/star.png")}
+          style={[
+            styles.starImage,
+            isActive && {
+              tintColor: colors.secondary,
+              transform: [{ scale: 1.05 }],
+              shadowColor: colors.secondary,
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.6,
+              shadowRadius: 4,
+            },
+            !canInteract && styles.starImageDisabled,
+          ]}
+        />
+        {/* Light yellow overlay when completed */}
+        {isCompleted && (
+          <View style={styles.yellowOverlay} />
+        )}
+      </View>
+      
+      <View style={styles.starTextContainer}>
+        <Text
+          style={[
+            styles.starOverlayText,
+            !canInteract && styles.starTextDisabled,
+          ]}
+        >
+          {index + 1}
+        </Text>
+      </View>
+      
+      {isCompleted && (
+        <View style={styles.completedBadge}>
+          <Text style={styles.completedBadgeText}>✓</Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
 };
 
 export default function Home() {
-  const [selectedSubject, setSelectedSubject] = useState(null);
-  const [selectedUnit, setSelectedUnit] = useState(null);
-  const [activeLevel, setActiveLevel] = useState(null);
+  const [selectedSubject, setSelectedSubject] = useState<string | null>(null);
+  const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
+  const [activeLevel, setActiveLevel] = useState<string | null>(null);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [lessonsLoading, setLessonsLoading] = useState(false);
   const router = useRouter();
+
+  // Fetch subjects from Firestore
+  useEffect(() => {
+    const fetchSubjects = async () => {
+      try {
+        const subjectsSnapshot = await getDocs(collection(db, "subjects"));
+        const subjectsList: Subject[] = [];
+        
+        subjectsSnapshot.forEach((doc) => {
+          const subjectName = doc.id;
+          subjectsList.push({
+            label: subjectName.charAt(0).toUpperCase() + subjectName.slice(1),
+            value: subjectName,
+          });
+        });
+        
+        setSubjects(subjectsList);
+      } catch (error) {
+        console.error("Error fetching subjects:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchSubjects();
+  }, []);
+
+  // Fetch lessons when subject is selected
+  useEffect(() => {
+    const fetchLessons = async () => {
+      if (!selectedSubject) {
+        setLessons([]);
+        return;
+      }
+
+      setLessonsLoading(true);
+      try {
+        const lessonsSnapshot = await getDocs(
+          collection(db, "subjects", selectedSubject, "lessons")
+        );
+        
+        const lessonsList: Lesson[] = [];
+        lessonsSnapshot.forEach((doc) => {
+          const data = doc.data();
+          lessonsList.push({
+            id: doc.id,
+            finished: data.finished || false,
+          });
+        });
+        
+        setLessons(lessonsList);
+        // Auto-select the first unit/lesson if available
+        if (lessonsList.length > 0) {
+          setSelectedUnit(lessonsList[0].id);
+        }
+      } catch (error) {
+        console.error("Error fetching lessons:", error);
+      } finally {
+        setLessonsLoading(false);
+      }
+    };
+
+    fetchLessons();
+  }, [selectedSubject]);
+
+  // Refresh lessons when returning from quiz (to update completed status)
+  const handleFocus = () => {
+    if (selectedSubject) {
+      // Refetch lessons to get updated completion status
+      const fetchUpdatedLessons = async () => {
+        try {
+          const lessonsSnapshot = await getDocs(
+            collection(db, "subjects", selectedSubject, "lessons")
+          );
+          
+          const lessonsList: Lesson[] = [];
+          lessonsSnapshot.forEach((doc) => {
+            const data = doc.data();
+            lessonsList.push({
+              id: doc.id,
+              finished: data.finished || false,
+            });
+          });
+          
+          setLessons(lessonsList);
+        } catch (error) {
+          console.error("Error fetching updated lessons:", error);
+        }
+      };
+
+      fetchUpdatedLessons();
+    }
+  };
+
+  // Listen for focus events (when user returns to this screen)
+  useEffect(() => {
+    // You might want to add a focus listener here if using React Navigation
+    // For now, we'll just refresh when selectedSubject changes
+  }, []);
 
   const navigateToQuiz = () => {
     if (selectedSubject && selectedUnit && activeLevel) {
@@ -74,10 +246,25 @@ export default function Home() {
     }
   };
 
+  const getLessonStatus = (lessonId: string) => {
+    const lesson = lessons.find(l => l.id === lessonId);
+    return lesson?.finished || false;
+  };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.centerContent]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={styles.loadingText}>Loading subjects...</Text>
+      </View>
+    );
+  }
+
   return (
     <ScrollView
       contentContainerStyle={styles.container}
       showsVerticalScrollIndicator={false}
+      onLayout={handleFocus} // Refresh data when screen becomes visible
     >
       <View style={styles.logoWrapper}>
         <LogoHeader />
@@ -98,38 +285,36 @@ export default function Home() {
       <View style={styles.card}>
         <Text style={styles.label}>Select Subject</Text>
         <Dropdown
-          data={SUBJECT_OPTIONS}
+          data={subjects}
           labelField="label"
           valueField="value"
           value={selectedSubject}
-          onChange={(item) => setSelectedSubject(item.value)}
+          onChange={(item) => {
+            setSelectedSubject(item.value);
+            setSelectedUnit(null);
+            setActiveLevel(null);
+          }}
           placeholder="Choose Subject"
           style={styles.dropdown}
           placeholderStyle={styles.dropdownPlaceholder}
           selectedTextStyle={styles.dropdownText}
         />
-
-        <Text style={styles.label}>Select Unit</Text>
-        <Dropdown
-          data={UNIT_OPTIONS}
-          labelField="label"
-          valueField="value"
-          value={selectedUnit}
-          onChange={(item) => setSelectedUnit(item.value)}
-          placeholder="Choose Unit"
-          style={styles.dropdown}
-          placeholderStyle={styles.dropdownPlaceholder}
-          selectedTextStyle={styles.dropdownText}
-        />
+        
+        {lessonsLoading && (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={styles.loadingText}>Loading lessons...</Text>
+          </View>
+        )}
       </View>
 
       {selectedSubject && selectedUnit && (
         <View style={styles.utilityRow}>
           <TouchableOpacity style={styles.secondaryButton}>
-            <Text style={styles.secondaryText}> Spend Coins</Text>
+            <Text style={styles.secondaryText}>💰 Spend Coins</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryButton}>
-            <Text style={styles.secondaryText}> Open Chat</Text>
+            <Text style={styles.secondaryText}>💬 Open Chat</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -156,44 +341,19 @@ export default function Home() {
         {STAR_POSITIONS.map((item, index) => {
           const isActive = activeLevel === item.level;
           const canInteract = selectedSubject && selectedUnit;
+          const isCompleted = getLessonStatus(item.level);
 
           return (
-            <TouchableOpacity
+            <StarWithOverlay
               key={`star-${index}`}
+              lessonId={item.level}
+              isCompleted={isCompleted}
+              isActive={isActive}
+              canInteract={!!canInteract}
               onPress={() => canInteract && setActiveLevel(item.level)}
-              style={[
-                styles.star,
-                { left: item.x, top: item.y },
-                !canInteract && styles.starDisabled,
-              ]}
-              activeOpacity={canInteract ? 0.7 : 1}
-            >
-              <Image
-                source={require("@/assets/images/star.png")}
-                style={[
-                  styles.starImage,
-                  isActive && {
-                    tintColor: colors.secondary,
-                    transform: [{ scale: 1.05 }],
-                    shadowColor: colors.secondary,
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.6,
-                    shadowRadius: 4,
-                  },
-                  !canInteract && styles.starImageDisabled,
-                ]}
-              />
-              <View style={styles.starTextContainer}>
-                <Text
-                  style={[
-                    styles.starOverlayText,
-                    !canInteract && styles.starTextDisabled,
-                  ]}
-                >
-                  {item.level}
-                </Text>
-              </View>
-            </TouchableOpacity>
+              style={{ left: item.x, top: item.y }}
+              index={index}
+            />
           );
         })}
       </View>
@@ -201,14 +361,14 @@ export default function Home() {
       {activeLevel && selectedSubject && selectedUnit && (
         <View style={styles.levelCard}>
           <Text style={styles.levelInfo}>
-            Ready for Level {activeLevel} in {selectedSubject}, {selectedUnit}?
+            Ready for Lesson {STAR_POSITIONS.findIndex(p => p.level === activeLevel) + 1} in {selectedSubject.charAt(0).toUpperCase() + selectedSubject.slice(1)}?
           </Text>
           <TouchableOpacity
             style={styles.startButton}
             onPress={navigateToQuiz}
           >
             <Text style={styles.startButtonText}>
-              Start Level {activeLevel}
+              Start Lesson {STAR_POSITIONS.findIndex(p => p.level === activeLevel) + 1}
             </Text>
           </TouchableOpacity>
         </View>
@@ -223,6 +383,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     padding: 20,
     paddingBottom: 60,
+  },
+  centerContent: {
+    justifyContent: "center",
+    alignItems: "center",
   },
   logoWrapper: {
     marginHorizontal: -50,
@@ -289,6 +453,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
   },
+  loadingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 10,
+  },
+  loadingText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: colors.textLight,
+  },
   utilityRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -324,13 +499,27 @@ const styles = StyleSheet.create({
   starDisabled: {
     opacity: 0.6,
   },
-  starImage: {
+  starContainer: {
+    position: "relative",
     width: 80,
     height: 80,
+  },
+  starImage: {
+    width: "100%",
+    height: "100%",
     resizeMode: "contain",
   },
   starImageDisabled: {
     opacity: 0.5,
+  },
+  yellowOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.yellowOverlay,
+    borderRadius: 40, // Rounded to match star shape better
   },
   starTextContainer: {
     position: "absolute",
@@ -349,6 +538,22 @@ const styles = StyleSheet.create({
   },
   starTextDisabled: {
     opacity: 0.7,
+  },
+  completedBadge: {
+    position: "absolute",
+    top: -5,
+    right: -5,
+    backgroundColor: "#4CAF50",
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  completedBadgeText: {
+    color: colors.white,
+    fontSize: 12,
+    fontWeight: "700",
   },
   levelCard: {
     backgroundColor: colors.white,

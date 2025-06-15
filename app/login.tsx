@@ -1,3 +1,4 @@
+import { addOrUpdateUser } from "@/utils/firebase.utils";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
@@ -40,11 +41,27 @@ export default function Login() {
 
     try {
       if (isSignup) {
-        await createUserWithEmailAndPassword(auth, email, password);
-      } else {
-        await signInWithEmailAndPassword(auth, email, password);
+        const authResult = await createUserWithEmailAndPassword(auth, email, password);
+        const userId = authResult.user.uid; 
+        if(authResult.user.email){
+          await addOrUpdateUser(
+            userId,
+            authResult.user.email,
+            authResult.user.email.split("@")[0]
+          );}
+      
+      } 
+      else {
+        const authResult = await signInWithEmailAndPassword(auth, email, password);
+        const userId = authResult.user.uid; 
+        if(authResult.user.email){
+          await addOrUpdateUser(
+            userId,
+            authResult.user.email,
+            authResult.user.email.split("@")[0]
+          );}
       }
-
+      
       // Save logged-in status
       await AsyncStorage.setItem("isLoggedIn", "true");
 

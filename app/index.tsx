@@ -2,20 +2,23 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Link, router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
+  SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+
 
 
 export default function WelcomeScreen() {
   const [isReady,setIsReady]=useState(true)
   const getInitalData = async () => {
     const data = await AsyncStorage.getItem("isLoggedIn");
+    console.log(data)
     if(data) {
+
       router.replace("/tabs");
     } 
     setIsReady(false) 
@@ -25,7 +28,8 @@ export default function WelcomeScreen() {
   },[])
   if (isReady) return 
   return (
-    <SafeAreaView>
+    <SafeAreaView style={{flex:1}}>
+
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#F7F5F2" />
 
