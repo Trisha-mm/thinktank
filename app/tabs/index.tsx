@@ -308,16 +308,21 @@ export default function Home() {
         )}
       </View>
 
-      {selectedSubject && selectedUnit && (
         <View style={styles.utilityRow}>
-          <TouchableOpacity style={styles.secondaryButton}>
+          <TouchableOpacity style={styles.secondaryButton}
+          onPress={() => router.push("/reward")}
+          >
             <Text style={styles.secondaryText}>💰 Spend Coins</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton}>
-            <Text style={styles.secondaryText}>💬 Open Chat</Text>
-          </TouchableOpacity>
+          <TouchableOpacity
+  style={styles.secondaryButton}
+  onPress={() => router.push("/chatUsers")}
+>
+  <Text style={styles.secondaryText}>💬 Open Chat</Text>
+</TouchableOpacity>
+
         </View>
-      )}
+
 
       <View style={styles.mapContainer}>
         <Svg style={StyleSheet.absoluteFill}>

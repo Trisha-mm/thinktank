@@ -1,7 +1,8 @@
 import LogoHeader from "@/components/LogoHeader";
 import { db } from "@/firebaseConfig";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams } from "expo-router";
-import { collection, doc, getDocs, updateDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, setDoc, updateDoc } from "firebase/firestore";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -29,11 +30,72 @@ type Lesson = {
   finished: boolean;
 };
 
+const markUserLessonCompleted = async (subject: string, lessonId: string) => {
+  try {
+    const userId = await AsyncStorage.getItem("userId");
+    if (!userId) {
+      console.error("No user ID found in AsyncStorage");
+      return;
+    }
+    
+    const userLessonRef = doc(db, "users", userId, "subjects", subject, "lessons", lessonId);
+    await setDoc(userLessonRef, {
+      finished: true,
+      completedAt: new Date(),
+    }, { merge: true });
+    
+    console.log(`Marked lesson ${lessonId} as completed for user ${userId} in subject ${subject}`);
+
+    await updateUserCompletedLevelsCount(userId);
+    
+  } catch (error) {
+    console.error("Error marking user lesson as completed:", error);
+  }
+};
+
+const updateUserCompletedLevelsCount = async (userId: string) => {
+  try {
+    let totalCompleted = 0;
+    
+    const subjectsSnapshot = await getDocs(collection(db, "subjects"));
+    
+    for (const subjectDoc of subjectsSnapshot.docs) {
+      const subjectId = subjectDoc.id;
+      
+      try {
+
+        const userLessonsSnapshot = await getDocs(
+          collection(db, "users", userId, "subjects", subjectId, "lessons")
+        );
+        
+        userLessonsSnapshot.forEach((lessonDoc) => {
+          const lessonData = lessonDoc.data();
+          if (lessonData.finished === true) {
+            totalCompleted++;
+          }
+        });
+      } catch (error) {
+        console.log(`No lessons found for user ${userId} in subject ${subjectId}`);
+      }
+    }
+    
+    const userRef = doc(db, "users", userId);
+    await updateDoc(userRef, {
+      levelsCompleted: totalCompleted,
+    });
+    
+    console.log(`Updated user ${userId} total completed levels to ${totalCompleted}`);
+    
+  } catch (error) {
+    console.error("Error updating user completed levels count:", error);
+  }
+};
+
 export default function QuizGame() {
   const { subject, unit, level } = useLocalSearchParams<{
-    subject?: string;
-    unit?: string;
-    level?: string;
+    subject: string;
+    unit: string;
+    level: string;
   }>();
 
   const [screen, setScreen] = useState<"start" | "quiz" | "end">("start");
@@ -47,27 +109,56 @@ export default function QuizGame() {
   const [error, setError] = useState<string | null>(null);
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [showStars, setShowStars] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
-  const fetchLessons = async () => {
+
+  const getCurrentUserId = async () => {
+    try {
+      const userId = await AsyncStorage.getItem("userId");
+      setCurrentUserId(userId);
+      return userId;
+    } catch (error) {
+      console.error("Error getting user ID:", error);
+      return null;
+    }
+  };
+
+  const fetchUserLessons = async () => {
     if (!subject) return;
 
     try {
+      const userId = await getCurrentUserId();
+      if (!userId) return;
+
       const lessonsSnapshot = await getDocs(
         collection(db, "subjects", subject, "lessons")
       );
 
       const fetchedLessons: Lesson[] = [];
-      lessonsSnapshot.forEach((doc) => {
-        const data = doc.data();
-        fetchedLessons.push({
-          id: doc.id,
-          finished: data.finished || false,
-        });
-      });
+      
+      for (const lessonDoc of lessonsSnapshot.docs) {
+        const lessonId = lessonDoc.id;
+     
+        try {
+          const userLessonRef = doc(db, "users", userId, "subjects", subject, "lessons", lessonId);
+          const userLessonDoc = await getDoc(userLessonRef);
+          
+          fetchedLessons.push({
+            id: lessonId,
+            finished: userLessonDoc.exists() && userLessonDoc.data()?.finished === true,
+          });
+        } catch (error) {
+          // Lesson not completed by user
+          fetchedLessons.push({
+            id: lessonId,
+            finished: false,
+          });
+        }
+      }
 
       setLessons(fetchedLessons);
     } catch (err) {
-      console.error("Error fetching lessons:", err);
+      console.error("Error fetching user lessons:", err);
     }
   };
 
@@ -83,9 +174,9 @@ export default function QuizGame() {
         setLoading(true);
         setError(null);
 
-        await fetchLessons();
+        await getCurrentUserId();
+        await fetchUserLessons();
 
-      
         const questionsSnapshot = await getDocs(
           collection(db, "subjects", subject, "lessons", level, "questions")
         );
@@ -107,7 +198,6 @@ export default function QuizGame() {
           });
         });
 
-
         const shuffledQuestions = [...fetchedQuestions].sort(() => Math.random() - 0.5);
         setQuestions(shuffledQuestions);
         
@@ -122,16 +212,20 @@ export default function QuizGame() {
     fetchQuestions();
   }, [subject, unit, level]);
 
-
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+  
     if (screen === "quiz" && timeLeft > 0) {
       timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
     } else if (screen === "quiz" && timeLeft === 0) {
       setShowFeedback("incorrect");
     }
-    return () => clearTimeout(timer);
-  }, [timeLeft, screen]);
+  
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [screen, timeLeft]);
+  
 
   const currentQuestion = questions[currentQuestionIndex];
   const progressPercentage = questions.length > 0
@@ -155,11 +249,10 @@ export default function QuizGame() {
       setTimeLeft(30);
       setSelectedAnswer("");
     } else {
-
       const perfectScore = questions.length * 10;
       const isPerfectScore = score === perfectScore;
       
-      if (isPerfectScore) {
+      if (isPerfectScore && subject && level) {
         markLessonAsFinished();
       }
       
@@ -171,13 +264,10 @@ export default function QuizGame() {
     if (!subject || !level) return;
 
     try {
-      const lessonRef = doc(db, "subjects", subject, "lessons", level);
-      await updateDoc(lessonRef, {
-        finished: true,
-      });
-      console.log("Lesson marked as finished");
       
-
+      await markUserLessonCompleted(subject, level);
+      
+ 
       setLessons(prev => 
         prev.map(lesson => 
           lesson.id === level 
@@ -186,7 +276,6 @@ export default function QuizGame() {
         )
       );
       
-
       setShowStars(true);
       
     } catch (error) {
@@ -203,13 +292,17 @@ export default function QuizGame() {
     setShowFeedback(null);
   };
 
-
   const isPerfectScore = () => {
     const perfectScore = questions.length * 10;
     return score === perfectScore;
   };
 
-  const StarWithOverlay = ({ lessonId, style }: { lessonId: string, style?: any }) => {
+  interface StarWithOverlayProps {
+    lessonId: string;
+    style?: any;
+  }
+
+  const StarWithOverlay: React.FC<StarWithOverlayProps> = ({ lessonId, style }) => {
     const isFinished = lessons.find(lesson => lesson.id === lessonId)?.finished || false;
     
     return (
@@ -243,7 +336,7 @@ export default function QuizGame() {
         const retryFetch = async () => {
           if (!subject || !unit || !level) return;
           try {
-            await fetchLessons();
+            await fetchUserLessons();
             const questionsSnapshot = await getDocs(
               collection(db, "subjects", subject, "lessons", level, "questions")
             );
@@ -275,7 +368,7 @@ export default function QuizGame() {
     <View style={styles.centerContainer}>
       <Text style={styles.title}>Ready to start?</Text>
       <Text style={styles.subtitle}>
-      {`${subject?.charAt(0).toUpperCase()}${subject?.slice(1)} - ${level}`}
+        {subject && `${subject.charAt(0).toUpperCase()}${subject.slice(1)} - ${level || ''}`}
       </Text>
       <Text style={styles.subtitle}>You'll earn $10 for every correct answer!</Text>
       <Text style={styles.completionRequirement}>
@@ -285,7 +378,6 @@ export default function QuizGame() {
         {questions.length} question{questions.length !== 1 ? "s" : ""} waiting
       </Text>
       
-      {}
       <View style={styles.starsContainer}>
         {['lesson1', 'lesson2', 'lesson3', 'lesson4', 'lesson5'].map((lessonId, index) => (
           <StarWithOverlay 
@@ -327,7 +419,7 @@ export default function QuizGame() {
         <Text style={styles.prompt}>Choose the correct answer</Text>
         <View style={styles.subjectInfo}>
           <Text style={styles.subjectText}>
-          {`${subject?.charAt(0).toUpperCase()}${subject?.slice(1)} • ${level}`}
+            {subject && `${subject.charAt(0).toUpperCase()}${subject.slice(1)} • ${level || ''}`}
           </Text>
         </View>
         <View style={styles.questionBox}>
@@ -365,7 +457,7 @@ export default function QuizGame() {
         <>
           <Text style={styles.title}>🎉 Congratulations!</Text>
           <Text style={styles.subtitle}>
-            You completed {`${subject?.charAt(0).toUpperCase()}${subject?.slice(1)} - ${level}`}
+            You completed {subject && `${subject.charAt(0).toUpperCase()}${subject.slice(1)} - ${level || ''}`}
           </Text>
           <Text style={styles.completionMessage}>Perfect score! Lesson unlocked!</Text>
         </>
@@ -373,7 +465,7 @@ export default function QuizGame() {
         <>
           <Text style={styles.title}>Quiz Finished!</Text>
           <Text style={styles.subtitle}>
-          {`${subject?.charAt(0).toUpperCase()}${subject?.slice(1)} - ${level}`}
+            {subject && `${subject.charAt(0).toUpperCase()}${subject.slice(1)} - ${level || ''}`}
           </Text>
           <Text style={styles.incompleteMessage}>
             You need a perfect score to complete the lesson. Try again!
@@ -386,7 +478,6 @@ export default function QuizGame() {
         {Math.round((score / (questions.length * 10)) * 100)}% accuracy
       </Text>
       
-      {}
       <View style={styles.starsContainer}>
         {['lesson1', 'lesson2', 'lesson3', 'lesson4', 'lesson5'].map((lessonId, index) => (
           <StarWithOverlay 
@@ -436,7 +527,6 @@ export default function QuizGame() {
     );
   };
 
-  
   const renderStarsModal = () => {
     if (!showStars || !isPerfectScore()) return null;
     return (
@@ -761,4 +851,3 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 });
-

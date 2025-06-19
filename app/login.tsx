@@ -49,6 +49,8 @@ export default function Login() {
             authResult.user.email,
             authResult.user.email.split("@")[0]
           );}
+        // Store user ID in AsyncStorage
+        await AsyncStorage.setItem("userId", authResult.user.uid);
       
       } 
       else {
@@ -60,6 +62,8 @@ export default function Login() {
             authResult.user.email,
             authResult.user.email.split("@")[0]
           );}
+        // Store user ID in AsyncStorage
+        await AsyncStorage.setItem("userId", authResult.user.uid);
       }
       
       // Save logged-in status
@@ -111,7 +115,7 @@ export default function Login() {
         <Text style={styles.toggleText}>
           {isSignup
             ? "Already have an account? Log In"
-            : "Don’t have an account? Sign Up"}
+            : "Don't have an account? Sign Up"}
         </Text>
       </TouchableOpacity>
 

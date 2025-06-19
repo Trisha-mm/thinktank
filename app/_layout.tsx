@@ -24,6 +24,25 @@ export default function StackLayout() {
           headerShown:false,
         }}
       />
+      <Stack.Screen
+        name="chat"
+        options={{
+          headerShown:false,
+        }}
+      />
+      <Stack.Screen
+        name="chatUsers"
+        options={{
+          headerShown:false,
+        }}
+      />
+        <Stack.Screen
+        name="reward"
+        options={{
+          headerShown:false,
+        }}
+      />
     </Stack>
+    
   );
 }
